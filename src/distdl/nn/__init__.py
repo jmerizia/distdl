@@ -14,6 +14,7 @@ from .conv_general import DistributedGeneralConv2d  # noqa: F401
 from .conv_general import DistributedGeneralConv3d  # noqa: F401
 from .halo_exchange import HaloExchange  # noqa: F401
 from .linear import DistributedLinear  # noqa: F401
+from .batch_norm import DistributedBatchNorm  # noqa: F401
 from .module import Module  # noqa: F401
 from .padnd import PadNd  # noqa: F401
 from .pooling import DistributedAvgPool1d  # noqa: F401
@@ -41,6 +42,7 @@ __all__ = ["Broadcast",
            "DistributedGeneralConv3d",
            "HaloExchange",
            "DistributedLinear",
+           "DistributedBatchNorm",
            "Module",
            "PadNd",
            "UnpadNd",
