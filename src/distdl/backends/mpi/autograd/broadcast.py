@@ -112,7 +112,7 @@ class BroadcastFunction(torch.autograd.Function):
         # Send all of the data
         if P_send.active:
             input_numpy = input.detach().numpy()
-            req = P_send.comm.scatter(input_numpy, root=0)
+            req = P_send.comm.Ibcast(input_numpy, root=0)
             requests.append(req)
 
         if P_recv.active:
