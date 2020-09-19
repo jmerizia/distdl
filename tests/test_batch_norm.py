@@ -47,6 +47,42 @@ parametrizations_affine.append(
         )
     )
 
+parametrizations_affine.append(
+    pytest.param(
+        np.arange(0, 4), [2, 2],  # P_x_ranks, P_x_shape,
+        (7, 13),  # input_shape
+        13, 1e-05, 0.1, True,  # num_features, eps, momentum, affine,
+        False,  # track_running_statistics
+        4,  # passed to comm_split_fixture, required MPI ranks
+        id="distributed-batch-norm-affine-2d",
+        marks=[pytest.mark.mpi(min_size=4)]
+        )
+    )
+
+parametrizations_affine.append(
+    pytest.param(
+        np.arange(0, 8), [1, 2, 2, 2],  # P_x_ranks, P_x_shape,
+        (7, 13, 11, 3),  # input_shape
+        13, 1e-05, 0.1, True,  # num_features, eps, momentum, affine,
+        False,  # track_running_statistics
+        8,  # passed to comm_split_fixture, required MPI ranks
+        id="distributed-batch-norm-affine-4d",
+        marks=[pytest.mark.mpi(min_size=8)]
+        )
+    )
+
+parametrizations_affine.append(
+    pytest.param(
+        np.arange(0, 12), [1, 3, 2, 2],  # P_x_ranks, P_x_shape,
+        (7, 13, 11, 3),  # input_shape
+        13, 1e-05, 0.1, True,  # num_features, eps, momentum, affine,
+        False,  # track_running_statistics
+        12,  # passed to comm_split_fixture, required MPI ranks
+        id="distributed-batch-norm-affine-4d-many-ranks",
+        marks=[pytest.mark.mpi(min_size=12)]
+        )
+    )
+
 parametrizations_non_affine.append(
     pytest.param(
         np.arange(0, 4), [1, 2, 2],  # P_x_ranks, P_x_shape,
@@ -114,12 +150,13 @@ def test_batch_norm_with_training(barrier_fence_fixture,
         exp = zero_volume_tensor()
 
     # Create the sequential network
+    layer = torch.nn.BatchNorm1d if len(input_shape) <= 3 else torch.nn.BatchNorm2d
     if P_world.comm.Get_rank() == 0:
-        seq_net = torch.nn.Sequential(torch.nn.BatchNorm1d(num_features=num_features,
-                                                           eps=eps,
-                                                           momentum=momentum,
-                                                           affine=affine,
-                                                           track_running_stats=track_running_stats))
+        seq_net = torch.nn.Sequential(layer(num_features=num_features,
+                                            eps=eps,
+                                            momentum=momentum,
+                                            affine=affine,
+                                            track_running_stats=track_running_stats))
         seq_parameters = list(seq_net.parameters())
         seq_optim = torch.optim.Adam(seq_parameters, lr=1e-1)
     else:

@@ -57,7 +57,8 @@ class DistributedBatchNorm(Module):
         self.inputs_seen = 0
 
         # Determine the size of the local trainable parameters (this is a bit of a hack)
-        possible_input_shape = [P_x.shape[0], num_features, P_x.shape[2]]
+        possible_input_shape = P_x.shape.tolist()
+        possible_input_shape[1] = num_features
         start_index = compute_start_index(P_x.shape, P_x.index, possible_input_shape)
         stop_index = compute_stop_index(P_x.shape, P_x.index, possible_input_shape)
         self.local_num_features = stop_index[1] - start_index[1]
@@ -183,7 +184,9 @@ class DistributedBatchNorm(Module):
         assert input.shape[1] == self.local_num_features
 
         # compute the volume of a feature
-        feature_volume = self.global_input_shape[0] * self.global_input_shape[2]
+        feature_volume = self.global_input_shape[0]
+        for k in self.global_input_shape[2:]:
+            feature_volume *= k
 
         # mini-batch statistics
         if self.training:
