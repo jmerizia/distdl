@@ -23,14 +23,14 @@ P_sum = P_sum_base.create_cartesian_topology_partition([1, 1, 1])
 P_out = P_output_base.create_cartesian_topology_partition([1, 1, 1])
 
 # set a random input in rank 0
-if P_world.comm.Get_rank() == 0:
+if P_world.rank == 0:
     input = np.random.rand(4, 3, 10)
     input = torch.tensor(input, dtype=torch.float32)
 else:
     input = zero_volume_tensor()
 
 # run sequential batch norm on rank 0 as reference
-if P_world.comm.Get_rank() == 0:
+if P_world.rank == 0:
     s_batch_norm = torch.nn.BatchNorm1d(num_features=3, track_running_stats=True)
     y1 = s_batch_norm(input)
     print_sequential(P_world.comm, f'reference: {y1}, {y1.shape}')
@@ -45,7 +45,7 @@ y2 = d_transpose_in(input)
 y2 = d_batch_norm(y2)
 y2 = d_transpose_out(y2)
 
-if P_world.comm.Get_rank() == 0:
+if P_world.rank == 0:
     avg_error = (y1 - y2).sum() / (y1.shape[0] * y1.shape[1] * y1.shape[2])
     print_sequential(P_world.comm, f'distributed: {y2}, {y2.shape}, average_error = {avg_error}')
 else:

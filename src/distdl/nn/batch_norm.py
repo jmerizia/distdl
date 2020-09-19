@@ -1,9 +1,14 @@
 import torch
+import numpy as np
 
 from distdl.nn.sum_reduce import SumReduce
 from distdl.nn.broadcast import Broadcast
 from distdl.nn.module import Module
 from distdl.backends.mpi.tensor_comm import compute_global_tensor_shape
+from distdl.utilities.torch import zero_volume_tensor
+from distdl.utilities.slicing import compute_start_index, compute_stop_index, \
+    range_index, worker_layout
+from distdl.utilities.debug import print_sequential
 
 
 class DistributedBatchNorm(Module):
@@ -16,15 +21,11 @@ class DistributedBatchNorm(Module):
     Parameters
     ----------
     P_x :
-        Partition of input tensor.
-    P_sum :
-        An internal paritition used to compute mini-batch statistics,
-        store running statistics, and store affine weights.
-    num_dimensions :
-        The number of dimensions in the input shape.
+        Partition of the input tensor.  Outputs are of the same shape,
+        and therefore re-use the input partition.
     num_features :
         Number of features in the input.
-        For exmaple, this should equal C in an input of shape (N, C, L).
+        For example, this should equal C in an input of shape (N, C, L).
     eps : optional
         A value added to the denominator for numerical stability.
         Default is 1e-5.
@@ -35,99 +36,177 @@ class DistributedBatchNorm(Module):
     affine : optional
         a boolean value that when set to True, this module has learnable affine parameters.
         Default is True.
-    track_running_statistics : optional
+    track_running_stats : optional
         a boolean value that when set to True, this module tracks the running mean and variance,
         and when set to False, this module does not track such statistics and uses batch statistics
         instead in both training and eval modes if the running mean and variance are None.
         Default is True.
     """
 
-    def __init__(self, P_x, P_sum, num_dimensions,
+    def __init__(self, P_x,
                  num_features, eps=1e-05, momentum=0.1, affine=True,
-                 track_running_statistics=True):
+                 track_running_stats=True):
         super(DistributedBatchNorm, self).__init__()
-        assert num_dimensions >= 2
-        self.P_x = P_x
-        self.P_sum = P_sum
-        self.num_dimensions = num_dimensions
+        self.num_dimensions = len(P_x.shape)
+        assert self.num_dimensions >= 2
         self.num_features = num_features
         self.eps = eps
         self.momentum = momentum
         self.affine = affine
-        self.track_running_statistics = track_running_statistics
-        self.inputs_seen = 0  # Note: this is used for cumulative moving average
+        self.track_running_stats = track_running_stats
+        self.inputs_seen = 0
 
-        internal_data_shape = [1 if i != 1 else self.num_features for i in range(self.num_dimensions)]
-        if self.track_running_statistics:
+        # Determine the size of the local trainable parameters (this is a bit of a hack)
+        possible_input_shape = [P_x.shape[0], num_features, P_x.shape[2]]
+        start_index = compute_start_index(P_x.shape, P_x.index, possible_input_shape)
+        stop_index = compute_stop_index(P_x.shape, P_x.index, possible_input_shape)
+        self.local_num_features = stop_index[1] - start_index[1]
+
+        internal_data_shape = [1] * self.num_dimensions
+        internal_data_shape[1] = self.local_num_features
+        internal_partition_shape = [1] * self.num_dimensions
+        internal_partition_shape[1] = P_x.shape[1]
+
+        # Decide which workers will be used to store sum and affine parameters
+        index = [0] * self.num_dimensions
+        index[1] = slice(0, P_x.shape[1])
+        index = tuple(index)
+        storage_workers = worker_layout(P_x.shape)[index].tolist()
+
+        self.P_x = P_x
+        self.P_sum_base = P_x.create_partition_inclusive(storage_workers)
+        self.P_sum = self.P_sum_base.create_cartesian_topology_partition(internal_partition_shape)
+
+        if self.track_running_stats:
             self.running_mean = torch.zeros(internal_data_shape)
             self.running_var = torch.ones(internal_data_shape)
         else:
             self.running_mean = None
             self.running_var = None
 
-        self.sr1 = SumReduce(P_x, P_sum)
-        self.sr2 = SumReduce(P_x, P_sum)
-        self.bc1 = Broadcast(P_sum, P_x)
-        self.bc2 = Broadcast(P_sum, P_x)
+        self.sr = SumReduce(P_x, self.P_sum)
+        self.bc = Broadcast(self.P_sum, P_x)
 
         if self.affine:
-            self.gamma = torch.nn.Parameter(torch.ones(internal_data_shape))
-            self.beta = torch.nn.Parameter(torch.zeros(internal_data_shape))
+            if self.P_sum.active:
+                self.gamma = torch.nn.Parameter(torch.ones(internal_data_shape))
+                self.beta = torch.nn.Parameter(torch.zeros(internal_data_shape))
+            else:
+                # Note: This is a bit of a hack that ensures that all ranks
+                #       have at least one (possibly trivial) trainable parameter to satisfy the constraint
+                #       that all PyTorch optimizers must be given at least one trainable parameter.
+                self.gamma = torch.nn.Parameter(zero_volume_tensor())
+                self.beta = torch.nn.Parameter(zero_volume_tensor())
 
-    def _compute_mean(self, x, feature_volume):
-        '''
-        Compute global mean given the input.
+    def _distdl_module_setup(self, input):
+        r"""Distributed batch norm module setup function.
+
+        This function is called every time something changes in the input
+        tensor structure.  It should not be called manually.
+
+        Parameters
+        ----------
+        input :
+            Tuple of forward inputs.  See
+            `torch.nn.Module.register_forward_pre_hook` for more details.
+
+        """
+        self.global_input_shape = compute_global_tensor_shape(input[0], self.P_x)
+
+    def _compute_mean(self, input, feature_volume):
+        r"""
+        Compute global feature mean (i.e., across all dimensions except feature).
         Ensures all ranks have the mean tensor.
-        '''
+
+        Parameters
+        ----------
+        input :
+            PyTorch Tensor of values that should be summed.
+        feature_volume :
+            Integer volume of a single feature.
+
+        """
+
+        x = input
         for dim in range(self.num_dimensions):
             if dim != 1:
                 x = x.sum(dim, keepdim=True)
-        x = self.sr1(x)
+        x = self.sr(x)
         x /= feature_volume
-        x = self.bc1(x)
+        x = self.bc(x)
         return x
 
     def _compute_var(self, input, mean, feature_volume):
-        '''
-        Compute global variance given the input and global mean.
+        r"""
+        Compute global variance across all dimensions except feature.
         Ensures all ranks have the variance tensor.
-        '''
+
+        Parameters
+        ----------
+        input :
+            PyTorch Tensor of values for which variance should be computed.
+        mean :
+            PyTorch Tensor of feature means of shape [1, num_features, 1, ...].
+        feature_volume :
+            Integer volume of a single feature.
+
+        """
+
         x = (input - mean) ** 2
-        for dim in range(self.num_dimensions):
-            if dim != 1:
-                x = x.sum(dim, keepdim=True)
-        x = self.sr2(x)
-        x /= feature_volume
-        x = self.bc2(x)
-        return x
+        return self._compute_mean(x, feature_volume)
 
-    def forward(self, input):
-        assert input.shape[1] == self.num_features
-
-        # compute the volume of a feature
-        global_shape = compute_global_tensor_shape(input, self.P_x)
-        feature_volume = global_shape[0] * global_shape[2]
-
-        # mini-batch statistics
-        mean = self._compute_mean(input, feature_volume)
-        var = self._compute_var(input, mean, feature_volume)
-
-        # update running statistics
-        if self.track_running_statistics and self.training:
+    def _update_running_stats(self, mean, var):
+        with torch.no_grad():
+            # Since this is no grad, there's no adjoint step, so we can avoid
+            # using a communication here and instead copy the work.
+            # So, each rank holds a copy of the running statistics.
             if self.momentum:
                 self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean
                 self.running_var = (1 - self.momentum) * self.running_var + self.momentum * var
             else:
                 # use a cumulative moving average instead
-                self.running_mean = (self.running_mean + self.inputs_seen * mean) / (self.inputs_seen + 1)
-                self.running_var = (self.running_var + self.inputs_seen * var) / (self.inputs_seen + 1)
+                self.running_mean = (mean + self.inputs_seen * self.running_mean) / (self.inputs_seen + 1)
+                self.running_var = (var + self.inputs_seen * self.running_var) / (self.inputs_seen + 1)
                 self.inputs_seen += 1
+
+    def forward(self, input):
+        r"""Forward function interface.
+
+        Parameters
+        ----------
+        input :
+            Input tensor to be normalized.
+
+        """
+
+        assert self.global_input_shape[1] == self.num_features
+        assert input.shape[1] == self.local_num_features
+
+        # compute the volume of a feature
+        feature_volume = self.global_input_shape[0] * self.global_input_shape[2]
+
+        # mini-batch statistics
+        if self.training:
+            mean = self._compute_mean(input, feature_volume)
+            var = self._compute_var(input, mean, feature_volume)
+            if self.track_running_stats:
+                self._update_running_stats(mean, var)
+        else:
+            if self.track_running_stats:
+                # use the tracked batch statistics
+                mean = self.running_mean
+                var = self.running_var
+            else:
+                mean = self._compute_mean(input, feature_volume)
+                var = self._compute_var(input, mean, feature_volume)
 
         # normalize
         x = (input - mean) / (var + self.eps) ** 0.5
 
         # scale and shift
         if self.affine:
-            x = self.gamma * x + self.beta
+            gamma = self.bc(self.gamma)
+            beta = self.bc(self.beta)
+            x = gamma * x + beta
 
         return x
