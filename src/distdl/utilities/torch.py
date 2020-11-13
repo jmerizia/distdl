@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 
 def zero_volume_tensor(b=None, dtype=None, requires_grad=False):
@@ -10,6 +11,14 @@ def zero_volume_tensor(b=None, dtype=None, requires_grad=False):
         return torch.empty((0,), dtype=dtype, requires_grad=requires_grad)
 
     return torch.empty((b, 0), dtype=dtype, requires_grad=requires_grad)
+
+
+def to_torch_pad(pad):
+    """
+    Accepts a NumPy ndarray describing a pad, and produces the torch F.pad format.
+    The shape of `pad' should be dims by 2.
+    """
+    return tuple(np.array(list(reversed(pad))).flatten())
 
 
 class TensorStructure:
