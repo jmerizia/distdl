@@ -58,6 +58,9 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
         # P_x is 1 x 1 x P_d-1 x ... x P_0
         self.P_x = P_x
 
+        if 'stride' in kwargs and not (kwargs['stride'] == 1 or all(s == 1 for s in kwargs['stride'])):
+            raise ValueError('DistributedFeatureConv only supports stride = 1.')
+
         # Back-end specific buffer manager for economic buffer allocation
         if buffer_manager is None:
             buffer_manager = self._distdl_backend.BufferManager()

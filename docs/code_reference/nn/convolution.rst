@@ -546,10 +546,6 @@ Assumptions
 * Convolution kernels are centered.
 * When a kernel has even size, the left side of the kernel is the shorter side.
 
-.. warning::
-   Current calculations of the subtensor index ranges required do not correctly
-   take stride and dilation into account.
-
 
 Examples
 ========

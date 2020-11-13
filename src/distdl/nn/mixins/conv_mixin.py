@@ -11,9 +11,6 @@ class ConvMixin:
                                  dilation):
         r"""Compute left index required to apply a kernel at a given index.
 
-        .. warning::
-           This does not currently take stride and dilation into account.
-           Therefore, the padding values may not be correct in these cases.
 
         Parameters
         ----------
@@ -35,15 +32,8 @@ class ConvMixin:
 
         """
 
-        # incorrect, does not take stride and dilation into account
-        # padding might also not be correct in these cases...
-        kernel_offsets = (kernel_size - 1) / 2
+        return stride * idx - padding
 
-        # for even sized kernels, always shortchange the left side
-        kernel_offsets[kernel_size % 2 == 0] -= 1
-
-        bases = idx + kernel_offsets - padding
-        return bases - kernel_offsets
 
     def _compute_max_input_range(self,
                                  idx,
@@ -53,9 +43,6 @@ class ConvMixin:
                                  dilation):
         r"""Compute right index required to apply a kernel at a given index.
 
-        .. warning::
-           This does not currently take stride and dilation into account.
-           Therefore, the padding values may not be correct in these cases.
 
         Parameters
         ----------
@@ -77,9 +64,4 @@ class ConvMixin:
 
         """
 
-        # incorrect, does not take stride and dilation into account
-        # padding might also not be correct in these cases...
-        kernel_offsets = (kernel_size - 1) / 2
-
-        bases = idx + kernel_offsets - padding
-        return bases + kernel_offsets
+        return stride * idx + dilation * (kernel_size - 1) - padding
