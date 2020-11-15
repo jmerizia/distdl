@@ -1028,3 +1028,48 @@ class MPICartesianPartition(MPIPartition):
             neighbor_ranks.append((lrank, rrank))
 
         return neighbor_ranks
+
+    def broadcast_to_neighbors(self, data):
+        """
+        Communicates the given data to all neighbors,
+        and returns the arrays of neighbors in each dimension.
+        Note: data on all ranks should have the same shape and dtype.
+
+        Parameters
+        ----------
+        data :
+            The data to broadcast to neighbors.
+
+        Returns
+        -------
+        neighbor_data :
+            List of (left, right) pairs of data in each dimension.
+
+        """
+
+        requests = []
+        for left_rank, right_rank in self.neighbor_ranks(self.rank):
+            if left_rank != MPI.PROC_NULL:
+                req = self._comm.Isend(data, dest=left_rank)
+                requests.append(req)
+            if right_rank != MPI.PROC_NULL:
+                req = self._comm.Isend(data, dest=right_rank)
+                requests.append(req)
+
+        MPI.Request.Waitall(requests)
+
+        neighbor_data = []
+        for left_rank, right_rank in self.neighbor_ranks(self.rank):
+            left_data = np.zeros_like(data)
+            right_data = np.zeros_like(data)
+            if left_rank != MPI.PROC_NULL:
+                self._comm.Recv(left_data, source=left_rank)
+            else:
+                left_data = None
+            if right_rank != MPI.PROC_NULL:
+                self._comm.Recv(right_data, source=right_rank)
+            else:
+                right_data = None
+            neighbor_data.append((left_data, right_data))
+
+        return neighbor_data

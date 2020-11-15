@@ -2,266 +2,199 @@ import numpy as np
 import pytest
 from adjoint_test import check_adjoint_test_tight
 
-adjoint_parametrizations = []
 
-# Main functionality
-adjoint_parametrizations.append(
+params = []
+
+# No stride, and ideal padding for kernel size
+params.append(
     pytest.param(
         np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+        2,  # input_dimensions
         [1, 5, 10, 10],  # x_global_shape
-        4,  # passed to comm_split_fixture, required MPI ranks
-        id="distributed",
-        marks=[pytest.mark.mpi(min_size=4)]
-        )
-    )
-
-
-# For example of indirect, see https://stackoverflow.com/a/28570677
-@pytest.mark.parametrize("P_x_ranks, P_x_shape,"
-                         "x_global_shape,"
-                         "comm_split_fixture",
-                         adjoint_parametrizations,
-                         indirect=["comm_split_fixture"])
-def test_simple_conv2d_adjoint_input(barrier_fence_fixture,
-                                     comm_split_fixture,
-                                     P_x_ranks, P_x_shape,
-                                     x_global_shape):
-
-    import numpy as np
-    import torch
-
-    from distdl.backends.mpi.partition import MPIPartition
-    from distdl.nn.conv_feature import DistributedFeatureConv2d
-    from distdl.utilities.slicing import compute_subshape
-    from distdl.utilities.torch import zero_volume_tensor
-
-    # Isolate the minimum needed ranks
-    base_comm, active = comm_split_fixture
-    if not active:
-        return
-    P_world = MPIPartition(base_comm)
-
-    # Create the partitions
-    P_x_base = P_world.create_partition_inclusive(P_x_ranks)
-    P_x = P_x_base.create_cartesian_topology_partition(P_x_shape)
-
-    x_global_shape = np.asarray(x_global_shape)
-
-    layer = DistributedFeatureConv2d(P_x,
-                                     in_channels=x_global_shape[1],
-                                     out_channels=10,
-                                     kernel_size=[3, 3], bias=False)
-
-    x = zero_volume_tensor(x_global_shape[0])
-    if P_x.active:
-        x_local_shape = compute_subshape(P_x.shape,
-                                         P_x.index,
-                                         x_global_shape)
-        x = torch.randn(*x_local_shape)
-    x.requires_grad = True
-
-    y = layer(x)
-
-    dy = zero_volume_tensor(x_global_shape[0])
-    if P_x.active:
-        dy = torch.randn(*y.shape)
-
-    y.backward(dy)
-    dx = x.grad
-
-    x = x.detach()
-    dx = dx.detach()
-    dy = dy.detach()
-    y = y.detach()
-
-    check_adjoint_test_tight(P_world, x, dx, y, dy)
-
-    P_world.deactivate()
-    P_x_base.deactivate()
-    P_x.deactivate()
-
-
-# For example of indirect, see https://stackoverflow.com/a/28570677
-@pytest.mark.parametrize("P_x_ranks, P_x_shape,"
-                         "x_global_shape,"
-                         "comm_split_fixture",
-                         adjoint_parametrizations,
-                         indirect=["comm_split_fixture"])
-def test_simple_conv2d_adjoint_weight(barrier_fence_fixture,
-                                      comm_split_fixture,
-                                      P_x_ranks, P_x_shape,
-                                      x_global_shape):
-
-    import numpy as np
-    import torch
-
-    from distdl.backends.mpi.partition import MPIPartition
-    from distdl.nn.conv_feature import DistributedFeatureConv2d
-    from distdl.utilities.slicing import compute_subshape
-    from distdl.utilities.torch import zero_volume_tensor
-
-    # Isolate the minimum needed ranks
-    base_comm, active = comm_split_fixture
-    if not active:
-        return
-    P_world = MPIPartition(base_comm)
-
-    # Create the partitions
-    P_x_base = P_world.create_partition_inclusive(P_x_ranks)
-    P_x = P_x_base.create_cartesian_topology_partition(P_x_shape)
-
-    x_global_shape = np.asarray(x_global_shape)
-
-    layer = DistributedFeatureConv2d(P_x,
-                                     in_channels=x_global_shape[1],
-                                     out_channels=10,
-                                     kernel_size=[3, 3], bias=False)
-
-    x = zero_volume_tensor(x_global_shape[0])
-    if P_x.active:
-        x_local_shape = compute_subshape(P_x.shape,
-                                         P_x.index,
-                                         x_global_shape)
-        x = torch.randn(*x_local_shape)
-    x.requires_grad = True
-
-    y = layer(x)
-
-    dy = zero_volume_tensor(x_global_shape[0])
-    if P_x.active:
-        dy = torch.randn(*y.shape)
-
-    y.backward(dy)
-
-    W = zero_volume_tensor()
-    dW = zero_volume_tensor()
-    if P_x.active:
-        W = layer.weight.detach()
-        dW = layer.weight.grad.detach()
-
-    dy = dy.detach()
-    y = y.detach()
-
-    check_adjoint_test_tight(P_world, W, dW, y, dy)
-
-    P_world.deactivate()
-    P_x_base.deactivate()
-    P_x.deactivate()
-
-
-# For example of indirect, see https://stackoverflow.com/a/28570677
-@pytest.mark.parametrize("P_x_ranks, P_x_shape,"
-                         "x_global_shape,"
-                         "comm_split_fixture",
-                         adjoint_parametrizations,
-                         indirect=["comm_split_fixture"])
-def test_simple_conv2d_adjoint_bias(barrier_fence_fixture,
-                                    comm_split_fixture,
-                                    P_x_ranks, P_x_shape,
-                                    x_global_shape):
-
-    import numpy as np
-    import torch
-
-    from distdl.backends.mpi.partition import MPIPartition
-    from distdl.nn.conv_feature import DistributedFeatureConv2d
-    from distdl.utilities.slicing import compute_subshape
-    from distdl.utilities.torch import zero_volume_tensor
-
-    # Isolate the minimum needed ranks
-    base_comm, active = comm_split_fixture
-    if not active:
-        return
-    P_world = MPIPartition(base_comm)
-
-    # Create the partitions
-    P_x_base = P_world.create_partition_inclusive(P_x_ranks)
-    P_x = P_x_base.create_cartesian_topology_partition(P_x_shape)
-
-    x_global_shape = np.asarray(x_global_shape)
-
-    layer = DistributedFeatureConv2d(P_x,
-                                     in_channels=x_global_shape[1],
-                                     out_channels=10,
-                                     kernel_size=[3, 3], bias=True)
-
-    x = zero_volume_tensor(x_global_shape[0])
-    if P_x.active:
-        x_local_shape = compute_subshape(P_x.shape,
-                                         P_x.index,
-                                         x_global_shape)
-        x = torch.zeros(*x_local_shape)
-    x.requires_grad = True
-
-    y = layer(x)
-
-    dy = zero_volume_tensor(x_global_shape[0])
-    if P_x.active:
-        dy = torch.randn(*y.shape)
-
-    y.backward(dy)
-
-    b = zero_volume_tensor()
-    db = zero_volume_tensor()
-    if P_x.active:
-        b = layer.bias.detach()
-        db = layer.bias.grad.detach()
-
-    dy = dy.detach()
-    y = y.detach()
-
-    check_adjoint_test_tight(P_world, b, db, y, dy)
-
-    P_world.deactivate()
-    P_x_base.deactivate()
-    P_x.deactivate()
-
-
-size_parametrizations = []
-
-size_parametrizations.append(
-    pytest.param(
-        np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
-        [1, 5, 10, 10],  # x_global_shape
-        [1, 10, 5, 5],  # y_local_shape
+        [3, 3],  # kernel_size
         [1, 1],  # padding
+        [1, 1],  # stride
+        [1, 1],  # dilation
         4,  # passed to comm_split_fixture, required MPI ranks
-        id="distributed",
+        id="no-stride-ideal-padding",
         marks=[pytest.mark.mpi(min_size=4)]
         )
     )
-size_parametrizations.append(
-    pytest.param(
-        np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
-        [1, 5, 10, 10],  # x_global_shape
-        [1, 10, 4, 4],  # y_local_shape
-        [0, 0],  # padding
-        4,  # passed to comm_split_fixture, required MPI ranks
-        id="distributed",
-        marks=[pytest.mark.mpi(min_size=4)]
-        )
-    )
+
+# # Basic example with stride = 2 and ideal padding
+# params.append(
+#    pytest.param(
+#        np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+#        2,  # input_dimensions
+#        [1, 5, 10, 10],  # x_global_shape
+#        [5, 5],  # kernel_size
+#        [2, 2],  # padding
+#        [2, 2],  # stride
+#        [1, 1],  # dilation
+#        4,  # passed to comm_split_fixture, required MPI ranks
+#        id="stride-2-ideal-padding",
+#        marks=[pytest.mark.mpi(min_size=4)]
+#        )
+#    )
+
+# # Odd local x shape with stride
+# params.append(
+#     pytest.param(
+#         np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+#         2,  # input_dimensions
+#         [1, 5, 5, 5],  # x_global_shape
+#         [3, 3],  # kernel_size
+#         [1, 1],  # padding
+#         [2, 2],  # stride
+#         [1, 1],  # dilation
+#         4,  # passed to comm_split_fixture, required MPI ranks
+#         id="odd-local-shape-with-stride",
+#         marks=[pytest.mark.mpi(min_size=4)]
+#         )
+#     )
+
+# # First kernel does not begin on local x left edge
+# params.append(
+#     pytest.param(
+#         np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+#         2,  # input_dimensions
+#         [1, 5, 6, 10],  # x_global_shape
+#         [5, 5],  # kernel_size
+#         [2, 2],  # padding
+#         [4, 4],  # stride
+#         [1, 1],  # dilation
+#         4,  # passed to comm_split_fixture, required MPI ranks
+#         id="kernel-needs-offset",
+#         marks=[pytest.mark.mpi(min_size=4)]
+#         )
+#     )
+
+# # Non-ideal padding
+# params.append(
+#     pytest.param(
+#         np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+#         2,  # input_dimensions
+#         [1, 5, 10, 8],  # x_global_shape
+#         [5, 5],  # kernel_size
+#         [1, 1],  # padding
+#         [1, 1],  # stride
+#         [1, 1],  # dilation
+#         4,  # passed to comm_split_fixture, required MPI ranks
+#         id="non-ideal-padding",
+#         marks=[pytest.mark.mpi(min_size=4)]
+#         )
+#     )
+
+# # Even kernel size
+# params.append(
+#     pytest.param(
+#         np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+#         2,  # input_dimensions
+#         [1, 5, 8, 8],  # x_global_shape
+#         [4, 4],  # kernel_size
+#         [1, 1],  # padding
+#         [1, 1],  # stride
+#         [1, 1],  # dilation
+#         4,  # passed to comm_split_fixture, required MPI ranks
+#         id="even-kernel-size",
+#         marks=[pytest.mark.mpi(min_size=4)]
+#         )
+#     )
+
+# # 3D input
+# params.append(
+#     pytest.param(
+#         np.arange(0, 8), [1, 1, 2, 2, 2],  # P_x_ranks, P_x_shape
+#         3,  # input_dimensions
+#         [1, 3, 4, 5, 6],  # x_global_shape
+#         [5, 5, 5],  # kernel_size
+#         [2, 2, 2],  # padding
+#         [2, 2, 1],  # stride
+#         [1, 1, 1],  # dilation
+#         8,  # passed to comm_split_fixture, required MPI ranks
+#         id="3d-input",
+#         marks=[pytest.mark.mpi(min_size=8)]
+#         )
+#     )
+
+# # 1D input
+# params.append(
+#     pytest.param(
+#         np.arange(0, 4), [1, 1, 4],  # P_x_ranks, P_x_shape
+#         1,  # input_dimensions
+#         [1, 3, 15],  # x_global_shape
+#         3,  # kernel_size
+#         1,  # padding
+#         1,  # stride
+#         1,  # dilation
+#         8,  # passed to comm_split_fixture, required MPI ranks
+#         id="1d-input",
+#         marks=[pytest.mark.mpi(min_size=8)]
+#         )
+#     )
+
+# # Dilation = 2
+# params.append(
+#     pytest.param(
+#         np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+#         2,  # input_dimensions
+#         [1, 3, 10, 10],  # x_global_shape
+#         [5, 5],  # kernel_size
+#         [1, 1],  # padding
+#         [1, 1],  # stride
+#         [2, 2],  # dilation
+#         4,  # passed to comm_split_fixture, required MPI ranks
+#         id="dilation-2",
+#         marks=[pytest.mark.mpi(min_size=4)]
+#         )
+#     )
+
+# # Lots of partitions
+# params.append(
+#     pytest.param(
+#         np.arange(0, 16), [1, 1, 4, 4],  # P_x_ranks, P_x_shape
+#         2,  # input_dimensions
+#         [1, 3, 10, 10],  # x_global_shape
+#         [5, 5],  # kernel_size
+#         [2, 2],  # padding
+#         [2, 2],  # stride
+#         [1, 1],  # dilation
+#         16,  # passed to comm_split_fixture, required MPI ranks
+#         id="many-partitions-small-input",
+#         marks=[pytest.mark.mpi(min_size=16)]
+#         )
+#     )
 
 
 @pytest.mark.parametrize("P_x_ranks, P_x_shape,"
+                         "input_dimensions,"
                          "x_global_shape,"
-                         "y_local_shape,"
+                         "kernel_size,"
                          "padding,"
+                         "stride,"
+                         "dilation,"
                          "comm_split_fixture",
-                         size_parametrizations,
+                         params,
                          indirect=["comm_split_fixture"])
-def test_simple_conv2d_shape(barrier_fence_fixture,
+def test_conv_versus_pytorch(barrier_fence_fixture,
                              comm_split_fixture,
                              P_x_ranks, P_x_shape,
+                             input_dimensions,
                              x_global_shape,
-                             y_local_shape,
-                             padding):
+                             kernel_size,
+                             padding,
+                             stride,
+                             dilation):
 
     import numpy as np
     import torch
+    from torch.nn import Conv1d, Conv2d, Conv3d, Sequential
 
     from distdl.backends.mpi.partition import MPIPartition
+    from distdl.nn.conv_feature import DistributedFeatureConv1d
     from distdl.nn.conv_feature import DistributedFeatureConv2d
+    from distdl.nn.conv_feature import DistributedFeatureConv3d
+    from distdl.nn.transpose import DistributedTranspose
     from distdl.utilities.slicing import compute_subshape
     from distdl.utilities.torch import zero_volume_tensor
 
@@ -272,30 +205,63 @@ def test_simple_conv2d_shape(barrier_fence_fixture,
     P_world = MPIPartition(base_comm)
 
     # Create the partitions
+    P_root_base = P_world.create_partition_inclusive(np.arange(1))
     P_x_base = P_world.create_partition_inclusive(P_x_ranks)
+    P_root = P_root_base.create_cartesian_topology_partition([1]*len(P_x_shape))
     P_x = P_x_base.create_cartesian_topology_partition(P_x_shape)
 
-    x_global_shape = np.asarray(x_global_shape)
+    # Create the layers
+    if input_dimensions == 1:
+        dist_layer_type = DistributedFeatureConv1d
+        seq_layer_type = Conv1d
+    elif input_dimensions == 2:
+        dist_layer_type = DistributedFeatureConv2d
+        seq_layer_type = Conv2d
+    elif input_dimensions == 3:
+        dist_layer_type = DistributedFeatureConv3d
+        seq_layer_type = Conv3d
+    scatter = DistributedTranspose(P_root, P_x)
+    dist_layer = dist_layer_type(P_x,
+                                 in_channels=x_global_shape[1],
+                                 out_channels=10,
+                                 kernel_size=kernel_size,
+                                 padding=padding,
+                                 stride=stride,
+                                 dilation=dilation,
+                                 bias=False)
+    gather = DistributedTranspose(P_x, P_root)
+    if P_root.active:
+        seq_layer = seq_layer_type(in_channels=x_global_shape[1],
+                                   out_channels=10,
+                                   kernel_size=kernel_size,
+                                   padding=padding,
+                                   stride=stride,
+                                   dilation=dilation,
+                                   bias=False)
+        # set the weights of both layers to be the same
+        weight = torch.rand_like(seq_layer.weight)
+        seq_layer.weight.data = weight
+        dist_layer.weight.data = weight
 
-    layer = DistributedFeatureConv2d(P_x,
-                                     in_channels=x_global_shape[1],
-                                     out_channels=10,
-                                     kernel_size=[3, 3],
-                                     padding=padding,
-                                     bias=False)
+    # Create the input
+    if P_root.active:
+        x = np.random.randn(*x_global_shape)
+        dist_x = torch.from_numpy(x.copy()).to(torch.float32)
+        seq_x = torch.from_numpy(x.copy()).to(torch.float32)
+        dist_x.requires_grad = True
+        seq_x.requires_grad = True
+    else:
+        dist_x = zero_volume_tensor(requires_grad=True)
 
-    x = zero_volume_tensor(x_global_shape[0])
-    if P_x.active:
-        x_local_shape = compute_subshape(P_x.shape,
-                                         P_x.index,
-                                         x_global_shape)
-        x = torch.zeros(*x_local_shape)
-    x.requires_grad = True
+    # Check the forward pass
+    dist_y = gather(dist_layer(scatter(dist_x)))
+    if P_root.active:
+        seq_y = seq_layer(seq_x)
+        assert dist_y.shape == seq_y.shape
+        # print((dist_y - seq_y).max())
+        assert torch.allclose(dist_y, seq_y)
 
-    y = layer(x)
-
-    if P_x.active:
-        assert(np.array_equal(np.array(y.shape), np.asarray(y_local_shape)))
+    # TODO: check backward pass
 
     P_world.deactivate()
     P_x_base.deactivate()

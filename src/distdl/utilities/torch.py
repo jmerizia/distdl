@@ -18,7 +18,7 @@ def to_torch_pad(pad):
     Accepts a NumPy ndarray describing a pad, and produces the torch F.pad format.
     The shape of `pad' should be dims by 2.
     """
-    return tuple(np.array(list(reversed(pad))).flatten())
+    return tuple(np.array(list(reversed(pad)), dtype=int).flatten())
 
 
 class TensorStructure:
@@ -26,7 +26,7 @@ class TensorStructure:
 
     """
 
-    def __init__(self, tensor=None):
+    def __init__(self, tensor=None, shape=None):
 
         self.shape = None
         self.dtype = None
@@ -34,6 +34,8 @@ class TensorStructure:
 
         if tensor is not None:
             self.fill_from_tensor(tensor)
+        elif shape is not None:
+            self.shape = shape
 
     def fill_from_tensor(self, tensor):
 

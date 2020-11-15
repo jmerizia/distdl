@@ -32,7 +32,7 @@ class ConvMixin:
 
         """
 
-        return stride * idx - padding
+        return stride * idx
 
 
     def _compute_max_input_range(self,
@@ -64,4 +64,4 @@ class ConvMixin:
 
         """
 
-        return stride * idx + dilation * (kernel_size - 1) - padding
+        return stride * idx + dilation * (kernel_size - 1)

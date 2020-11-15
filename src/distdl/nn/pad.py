@@ -2,7 +2,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from distdl.utilities.slicing import range_index
 from distdl.utilities.torch import to_torch_pad
 
 
@@ -35,8 +34,8 @@ class DistributedPad(torch.nn.Module):
         should_pad_left = [k == 0 for k in P_x.index]
         should_pad_right = [k == d-1 for k, d in zip(P_x.index, P_x.shape)]
         should_pad = np.stack((should_pad_left, should_pad_right), axis=1)
-        local_pad = np.where(should_pad, pad, 0)
-        self.torch_pad = to_torch_pad(local_pad)
+        self.local_pad = np.where(should_pad, pad, 0)
+        self.torch_pad = to_torch_pad(self.local_pad)
 
     def forward(self, input):
         return F.pad(input, self.torch_pad, mode=self.mode, value=self.value)

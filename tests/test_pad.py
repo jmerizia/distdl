@@ -56,6 +56,19 @@ parametrizations.append(
         )
     )
 
+# 4D input
+parametrizations.append(
+    pytest.param(
+        np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+        [3, 3, 6, 6],  # global_input_shape
+        torch.float32,  # dtype
+        [[1, 1], [0, 0], [3, 3], [1, 2]],  # pad
+        4,  # passed to comm_split_fixture, required MPI ranks
+        id="nonnegative_padding-float32",
+        marks=[pytest.mark.mpi(min_size=4)]
+        )
+    )
+
 
 @pytest.mark.parametrize("P_x_ranks,"
                          "P_x_shape,"
