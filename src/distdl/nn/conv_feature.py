@@ -1,18 +1,16 @@
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 from distdl.nn.broadcast import Broadcast
 from distdl.nn.halo_exchange import HaloExchange
-from distdl.nn.pad import DistributedPad
 from distdl.nn.mixins.conv_mixin import ConvMixin
 from distdl.nn.mixins.halo_mixin import HaloMixin
 from distdl.nn.module import Module
+from distdl.nn.padnd import PadNd
+from distdl.nn.unpadnd import UnpadNd
 from distdl.utilities.slicing import assemble_slices
 from distdl.utilities.torch import TensorStructure
 from distdl.utilities.torch import zero_volume_tensor
-from distdl.utilities.torch import to_torch_pad
-from distdl.backends.mpi.tensor_decomposition import compute_subtensor_shapes_unbalanced
 
 
 class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
@@ -47,63 +45,18 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
     ----------
     P_x :
         Partition of input tensor.
-    in_channels :
-        (int)
-        Number of channels in the input image
-    out_channels :
-        (int)
-        Number of channels produced by the convolution
-    kernel_size :
-        (int or tuple)
-        Size of the convolving kernel.
-    stride :
-        (int or tuple, optional)
-        Stride of the convolution. Default: 1
-    padding :
-        (int or tuple, optional)
-        Zero-padding added to both sides of the input. Default: 0
-    padding_mode :
-        (int or tuple, optional)
-        'zeros', 'reflect', 'replicate' or 'circular'. Default: 'zeros'
-        .. warning::
-            Currently, only padding_mode = 'zeros' is supported.
-    dilation :
-        (int or tuple, optional)
-        Spacing between kernel elements. Default: 1
-    groups :
-        (int, optional)
-        Number of blocked connections from input channels to output channels. Default: 1
-    bias :
-        (bool, optional)
-        If True, adds a learnable bias to the output. Default: True
-    buffer_manager :
-        (BufferManager, optional)
-        Optional DistDL buffer manager. Default: None
+
     """
 
     # Convolution class for base unit of work.
     TorchConvType = None
 
-    def __init__(self,
-                 P_x,
-                 in_channels,
-                 out_channels,
-                 kernel_size,
-                 stride=1,
-                 padding=0,
-                 padding_mode='zeros',
-                 dilation=1,
-                 groups=1,
-                 bias=True,
-                 buffer_manager=None):
+    def __init__(self, P_x, buffer_manager=None, *args, **kwargs):
 
         super(DistributedFeatureConvBase, self).__init__()
 
         # P_x is 1 x 1 x P_d-1 x ... x P_0
         self.P_x = P_x
-
-        if padding_mode != 'zeros':
-            raise ValueError('Only padding_mode = \'zeros\' is supported.')
 
         # Back-end specific buffer manager for economic buffer allocation
         if buffer_manager is None:
@@ -115,38 +68,9 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
         if not self.P_x.active:
             return
 
-        dims = len(P_x.shape)
-
         # Do this before checking serial so that the layer works properly
         # in the serial case
-        self.conv_layer = self.TorchConvType(in_channels=in_channels,
-                                             out_channels=out_channels,
-                                             kernel_size=kernel_size,
-                                             stride=stride,
-                                             padding=0,
-                                             dilation=dilation,
-                                             groups=groups,
-                                             bias=bias)
-
-        # Expand the given parameters to the proper shapes
-        kernel_size = np.atleast_1d(kernel_size)
-        kernel_size = self._left_pad_to_length(kernel_size, dims, 1)
-        stride = np.atleast_1d(stride)
-        stride = self._left_pad_to_length(stride, dims, 1)
-        # For now, only support symmetric padding
-        padding = np.atleast_1d(padding)
-        padding = self._left_pad_to_length(padding, dims, 0)
-        dilation = np.atleast_1d(dilation)
-        dilation = self._left_pad_to_length(dilation, dims, 1)
-
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
-        self.groups = groups
-        self.bias = bias
+        self.conv_layer = self.TorchConvType(*args, **kwargs)
 
         self.serial = False
         if self.P_x.size == 1:
@@ -197,14 +121,11 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
             self.b_broadcast = Broadcast(self.P_wb_cart, self.P_x,
                                          preserve_batch=False)
 
-        # We need to pad the input ourselves, since ConvNd can only pad symmetrically.
-        # Since global dimensions are needed, construction defered to pre-forward hook.
-        self.pad_layer = None
-
         # We need the halo shape, and other info, to fully populate the pad,
         # halo exchange, and unpad layers.  For pad and unpad, we defer their
         # construction to the pre-forward hook.
-        self.torch_halo_pad = None
+        self.pad_layer = None
+        self.unpad_layer = None
 
         # We need to be able to remove some data from the input to the conv
         # layer.
@@ -243,43 +164,27 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
         if self.serial:
             return
 
-        dims = len(self.padding)
-        pad_left_right = self.padding.reshape((dims, 1)) + np.zeros((dims, 2), dtype=np.int)
-        self.pad_layer = DistributedPad(self.P_x, pad_left_right, mode='constant', value=0)
+        # To compute the halo regions, we need the global tensor shape.  This
+        # is not available until when the input is provided.
+        x_global_structure = \
+            self._distdl_backend.assemble_global_tensor_structure(input[0], self.P_x)
 
-        # Compute the global and local input shapes after padding
-        x_global_shape = self._distdl_backend.assemble_global_tensor_structure(input[0], self.P_x).shape
-        x_local_shape = np.array(input[0].shape)
-        x_global_shape_after_pad = x_global_shape + 2*self.padding
-        x_local_shape_after_pad = x_local_shape + np.sum(self.pad_layer.local_pad, axis=1, keepdims=False)
+        # Using that information, we can get there rest of the halo information
+        exchange_info = self._compute_exchange_info(x_global_structure.shape,
+                                                    self.conv_layer.kernel_size,
+                                                    self.conv_layer.stride,
+                                                    self.conv_layer.padding,
+                                                    self.conv_layer.dilation,
+                                                    self.P_x.active,
+                                                    self.P_x.shape,
+                                                    self.P_x.index)
+        halo_shape = exchange_info[0]
+        recv_buffer_shape = exchange_info[1]
+        send_buffer_shape = exchange_info[2]
+        needed_ranges = exchange_info[3]
 
-        # Compute left and right start and stop indices for the local input shape
-        subtensor_shapes_unbalanced = \
-            compute_subtensor_shapes_unbalanced(TensorStructure(shape=x_local_shape_after_pad), self.P_x)
-        x_local_start_index, x_local_stop_index = \
-            self._compute_local_start_stop_indices(subtensor_shapes_unbalanced, x_local_shape_after_pad)
-
-        # Compute the local halo region
-        # Note: Since we assume the padding is already added to the input, we need not add it here.
-        halo_shape_with_negative = self._compute_halo_shape(partition_shape=self.P_x.shape,
-                                                            partition_index=self.P_x.index,
-                                                            x_global_shape=x_global_shape_after_pad,
-                                                            x_local_start_index=x_local_start_index,
-                                                            x_local_stop_index=x_local_stop_index,
-                                                            kernel_size=self.kernel_size,
-                                                            stride=self.stride,
-                                                            padding=np.zeros_like(self.padding),
-                                                            dilation=self.dilation)
-        halo_shape = np.maximum(halo_shape_with_negative, 0)
-
-        # The input to PyTorch's functional pad layer is different from NumPy's, so transform it.
-        self.torch_halo_pad = to_torch_pad(halo_shape)
-
-        # Determine the halo shapes of the neighboring ranks
-        neighbor_halo_shapes = self.P_x.broadcast_to_neighbors(halo_shape)
-
-        # We can now compute the info required for the halo layer.
-        recv_buffer_shape, send_buffer_shape = self._compute_exchange_info(halo_shape, neighbor_halo_shapes)
+        # Now we have enough information to instantiate the padding shim
+        self.pad_layer = PadNd(halo_shape, value=0)
 
         # We can also set up part of the halo layer.
         self.halo_layer = HaloExchange(self.P_x,
@@ -290,9 +195,19 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
 
         # We have to select out the "unused" entries.  Sometimes there can
         # be "negative" halos.
-        needed_ranges = self._compute_needed_ranges(x_local_shape_after_pad, halo_shape_with_negative)
         self.needed_slices = assemble_slices(needed_ranges[:, 0],
                                              needed_ranges[:, 1])
+
+        # Unpad shape are conv layer's padding in the dimensions where we have
+        # a halo, otherwise 0.  There is no halo in the batch and channel
+        # dimensions.
+        conv_padding = np.concatenate(([0, 0], self.conv_layer.padding))
+        unpad_shape = []
+        for pad, halo in zip(conv_padding, halo_shape):
+            unpad_shape.append(np.where(halo > 0, pad, 0))
+        unpad_shape = np.asarray(unpad_shape)
+
+        self.unpad_layer = UnpadNd(unpad_shape, value=0)
 
     def _distdl_module_teardown(self, input):
         r"""Distributed (channel) convolution module teardown function.
@@ -310,7 +225,7 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
 
         # Reset all sub_layers
         self.pad_layer = None
-        self.torch_halo_pad = None
+        self.unpad_layer = None
         self.needed_slices = None
         self.halo_layer = None
 
@@ -357,11 +272,10 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
             self.conv_layer.bias = b
 
         input_padded = self.pad_layer(input)
-        input_padded_with_halo = F.pad(input_padded, pad=self.torch_halo_pad, mode='constant', value=0)
-        input_exchanged = self.halo_layer(input_padded_with_halo)
+        input_exchanged = self.halo_layer(input_padded)
         input_needed = input_exchanged[self.needed_slices]
         conv_output = self.conv_layer(input_needed)
-        return conv_output
+        return self.unpad_layer(conv_output)
 
 
 class DistributedFeatureConv1d(DistributedFeatureConvBase):
