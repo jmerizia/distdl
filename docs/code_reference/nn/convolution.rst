@@ -72,6 +72,14 @@ structure, so there is no need to specify it.  Also, with no partition in the
 channel dimension, the learnable weight tensor is assumed to be small enough
 that it can trivially be stored by one worker.
 
+.. warning::
+Current the implementation in
+:class:`distdl.nn.conv_feature.DistributedFeatureConvBase`
+does not take stride and certain paddings into account.  Use the implementation in
+:class:`distdl.nn.conv_feature_new.DistributedFeatureConvBase` for correct stride
+calculation.
+
+
 Assumptions
 ~~~~~~~~~~~
 
