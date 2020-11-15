@@ -243,52 +243,43 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
         if self.serial:
             return
 
-        pad_left_right = self._broadcast_2d(self.padding)
+        dims = len(self.padding)
+        pad_left_right = self.padding.reshape((dims, 1)) + np.zeros((dims, 2), dtype=np.int)
         self.pad_layer = DistributedPad(self.P_x, pad_left_right, mode='constant', value=0)
 
         # Compute the global and local input shapes after padding
-        x_global_shape = \
-            self._distdl_backend.assemble_global_tensor_structure(input[0], self.P_x).shape
+        x_global_shape = self._distdl_backend.assemble_global_tensor_structure(input[0], self.P_x).shape
         x_local_shape = np.array(input[0].shape)
         x_global_shape_after_pad = x_global_shape + 2*self.padding
         x_local_shape_after_pad = x_local_shape + np.sum(self.pad_layer.local_pad, axis=1, keepdims=False)
 
-        # To compute exchange info, the local input shapes of the neighboring
-        # partitions (left and right per dimension) must be known.
-        neighbor_x_local_shapes_after_pad = self.P_x.broadcast_to_neighbors(x_local_shape_after_pad)
-
         # Compute left and right start and stop indices for the local input shape
-        dims = len(x_global_shape)
         subtensor_shapes_unbalanced = \
             compute_subtensor_shapes_unbalanced(TensorStructure(shape=x_local_shape_after_pad), self.P_x)
         x_local_start_index, x_local_stop_index = \
             self._compute_local_start_stop_indices(subtensor_shapes_unbalanced, x_local_shape_after_pad)
-        
-        # We also need left and right stop indices for neighbors
-        neighbor_x_local_start_indices = self.P_x.broadcast_to_neighbors(x_local_start_index)
-        neighbor_x_local_stop_indices = self.P_x.broadcast_to_neighbors(x_local_stop_index)
 
-        # Using that information, we can get there rest of the halo information
-        exchange_info = self._compute_exchange_info(x_global_shape_after_pad,
-                                                    x_local_shape_after_pad,
-                                                    neighbor_x_local_shapes_after_pad,
-                                                    x_local_start_index,
-                                                    x_local_stop_index,
-                                                    neighbor_x_local_start_indices,
-                                                    neighbor_x_local_stop_indices,
-                                                    self.kernel_size,
-                                                    self.stride,
-                                                    self.padding,
-                                                    self.dilation,
-                                                    self.P_x.active,
-                                                    self.P_x.shape,
-                                                    self.P_x.index)
-        halo_shape = exchange_info[0]
-        recv_buffer_shape = exchange_info[1]
-        send_buffer_shape = exchange_info[2]
-        needed_ranges = exchange_info[3]
+        # Compute the local halo region
+        # Note: Since we assume the padding is already added to the input, we need not add it here.
+        halo_shape_with_negative = self._compute_halo_shape(partition_shape=self.P_x.shape,
+                                                            partition_index=self.P_x.index,
+                                                            x_global_shape=x_global_shape_after_pad,
+                                                            x_local_start_index=x_local_start_index,
+                                                            x_local_stop_index=x_local_stop_index,
+                                                            kernel_size=self.kernel_size,
+                                                            stride=self.stride,
+                                                            padding=np.zeros_like(self.padding),
+                                                            dilation=self.dilation)
+        halo_shape = np.maximum(halo_shape_with_negative, 0)
 
+        # The input to PyTorch's functional pad layer is different from NumPy's, so transform it.
         self.torch_halo_pad = to_torch_pad(halo_shape)
+
+        # Determine the halo shapes of the neighboring ranks
+        neighbor_halo_shapes = self.P_x.broadcast_to_neighbors(halo_shape)
+
+        # We can now compute the info required for the halo layer.
+        recv_buffer_shape, send_buffer_shape = self._compute_exchange_info(halo_shape, neighbor_halo_shapes)
 
         # We can also set up part of the halo layer.
         self.halo_layer = HaloExchange(self.P_x,
@@ -299,6 +290,7 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
 
         # We have to select out the "unused" entries.  Sometimes there can
         # be "negative" halos.
+        needed_ranges = self._compute_needed_ranges(x_local_shape_after_pad, halo_shape_with_negative)
         self.needed_slices = assemble_slices(needed_ranges[:, 0],
                                              needed_ranges[:, 1])
 

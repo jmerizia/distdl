@@ -198,7 +198,7 @@ params.append(
         np.arange(0, 18), [1, 1, 3, 3, 2],  # P_x_ranks, P_x_shape
         3,  # input_dimensions
         [1, 5, 50, 50, 50],  # x_global_shape
-        [5, 3, 3],  # kernel_size
+        [5, 4, 3],  # kernel_size
         [1, 1, 2],  # padding
         [3, 1, 2],  # stride
         [3, 3, 1],  # dilation
