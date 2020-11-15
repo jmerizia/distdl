@@ -264,7 +264,6 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
         x_local_start_index, x_local_stop_index = \
             self._compute_local_start_stop_indices(subtensor_shapes_unbalanced, x_local_shape_after_pad)
         
-        assert False
         # We also need left and right stop indices for neighbors
         neighbor_x_local_start_indices = self.P_x.broadcast_to_neighbors(x_local_start_index)
         neighbor_x_local_stop_indices = self.P_x.broadcast_to_neighbors(x_local_stop_index)
@@ -288,10 +287,6 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
         recv_buffer_shape = exchange_info[1]
         send_buffer_shape = exchange_info[2]
         needed_ranges = exchange_info[3]
-
-        # print(self.P_x.rank, 'send', send_buffer_shape)
-        # print(self.P_x.rank, 'recv', recv_buffer_shape)
-        # assert False
 
         self.torch_halo_pad = to_torch_pad(halo_shape)
 
@@ -371,20 +366,9 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
 
         input_padded = self.pad_layer(input)
         input_padded_with_halo = F.pad(input_padded, pad=self.torch_halo_pad, mode='constant', value=0)
-        print(self.P_x.rank)
-        print('orig', input[0][0], input[0][0].shape)
-        print('padded', input_padded[0][0], input_padded[0][0].shape)
-        print('halo', input_padded_with_halo[0][0], input_padded_with_halo[0][0].shape)
-
         input_exchanged = self.halo_layer(input_padded_with_halo)
-        print(self.P_x.rank, 'exchanged', input_exchanged.shape)
-        # assert False
         input_needed = input_exchanged[self.needed_slices]
-        print('forward', self.conv_layer.padding)
-        # assert False
-
         conv_output = self.conv_layer(input_needed)
-        # assert False
         return conv_output
 
 

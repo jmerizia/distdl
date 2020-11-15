@@ -15,155 +15,199 @@ params.append(
         [1, 1],  # padding
         [1, 1],  # stride
         [1, 1],  # dilation
+        False,  # bias
         4,  # passed to comm_split_fixture, required MPI ranks
         id="no-stride-ideal-padding",
         marks=[pytest.mark.mpi(min_size=4)]
         )
     )
 
-# # Basic example with stride = 2 and ideal padding
-# params.append(
-#    pytest.param(
-#        np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
-#        2,  # input_dimensions
-#        [1, 5, 10, 10],  # x_global_shape
-#        [5, 5],  # kernel_size
-#        [2, 2],  # padding
-#        [2, 2],  # stride
-#        [1, 1],  # dilation
-#        4,  # passed to comm_split_fixture, required MPI ranks
-#        id="stride-2-ideal-padding",
-#        marks=[pytest.mark.mpi(min_size=4)]
-#        )
-#    )
+# Basic example with stride = 2 and ideal padding
+params.append(
+   pytest.param(
+       np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+       2,  # input_dimensions
+       [1, 5, 10, 10],  # x_global_shape
+       [5, 5],  # kernel_size
+       [2, 2],  # padding
+       [2, 2],  # stride
+       [1, 1],  # dilation
+        False,  # bias
+       4,  # passed to comm_split_fixture, required MPI ranks
+       id="stride-2-ideal-padding",
+       marks=[pytest.mark.mpi(min_size=4)]
+       )
+   )
 
-# # Odd local x shape with stride
-# params.append(
-#     pytest.param(
-#         np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
-#         2,  # input_dimensions
-#         [1, 5, 5, 5],  # x_global_shape
-#         [3, 3],  # kernel_size
-#         [1, 1],  # padding
-#         [2, 2],  # stride
-#         [1, 1],  # dilation
-#         4,  # passed to comm_split_fixture, required MPI ranks
-#         id="odd-local-shape-with-stride",
-#         marks=[pytest.mark.mpi(min_size=4)]
-#         )
-#     )
+# Odd local x shape with stride
+params.append(
+    pytest.param(
+        np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+        2,  # input_dimensions
+        [1, 5, 5, 5],  # x_global_shape
+        [3, 3],  # kernel_size
+        [1, 1],  # padding
+        [2, 2],  # stride
+        [1, 1],  # dilation
+        False,  # bias
+        4,  # passed to comm_split_fixture, required MPI ranks
+        id="odd-local-shape-with-stride",
+        marks=[pytest.mark.mpi(min_size=4)]
+        )
+    )
 
-# # First kernel does not begin on local x left edge
-# params.append(
-#     pytest.param(
-#         np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
-#         2,  # input_dimensions
-#         [1, 5, 6, 10],  # x_global_shape
-#         [5, 5],  # kernel_size
-#         [2, 2],  # padding
-#         [4, 4],  # stride
-#         [1, 1],  # dilation
-#         4,  # passed to comm_split_fixture, required MPI ranks
-#         id="kernel-needs-offset",
-#         marks=[pytest.mark.mpi(min_size=4)]
-#         )
-#     )
+# First kernel does not begin on local x left edge
+params.append(
+    pytest.param(
+        np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+        2,  # input_dimensions
+        [1, 5, 6, 10],  # x_global_shape
+        [5, 5],  # kernel_size
+        [2, 2],  # padding
+        [4, 4],  # stride
+        [1, 1],  # dilation
+        False,  # bias
+        4,  # passed to comm_split_fixture, required MPI ranks
+        id="kernel-needs-offset",
+        marks=[pytest.mark.mpi(min_size=4)]
+        )
+    )
 
-# # Non-ideal padding
-# params.append(
-#     pytest.param(
-#         np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
-#         2,  # input_dimensions
-#         [1, 5, 10, 8],  # x_global_shape
-#         [5, 5],  # kernel_size
-#         [1, 1],  # padding
-#         [1, 1],  # stride
-#         [1, 1],  # dilation
-#         4,  # passed to comm_split_fixture, required MPI ranks
-#         id="non-ideal-padding",
-#         marks=[pytest.mark.mpi(min_size=4)]
-#         )
-#     )
+# Non-ideal padding
+params.append(
+    pytest.param(
+        np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+        2,  # input_dimensions
+        [1, 5, 10, 8],  # x_global_shape
+        [5, 5],  # kernel_size
+        [1, 1],  # padding
+        [1, 1],  # stride
+        [1, 1],  # dilation
+        False,  # bias
+        4,  # passed to comm_split_fixture, required MPI ranks
+        id="non-ideal-padding",
+        marks=[pytest.mark.mpi(min_size=4)]
+        )
+    )
 
-# # Even kernel size
-# params.append(
-#     pytest.param(
-#         np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
-#         2,  # input_dimensions
-#         [1, 5, 8, 8],  # x_global_shape
-#         [4, 4],  # kernel_size
-#         [1, 1],  # padding
-#         [1, 1],  # stride
-#         [1, 1],  # dilation
-#         4,  # passed to comm_split_fixture, required MPI ranks
-#         id="even-kernel-size",
-#         marks=[pytest.mark.mpi(min_size=4)]
-#         )
-#     )
+# Even kernel size
+params.append(
+    pytest.param(
+        np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+        2,  # input_dimensions
+        [1, 5, 8, 8],  # x_global_shape
+        [4, 4],  # kernel_size
+        [1, 1],  # padding
+        [1, 1],  # stride
+        [1, 1],  # dilation
+        False,  # bias
+        4,  # passed to comm_split_fixture, required MPI ranks
+        id="even-kernel-size",
+        marks=[pytest.mark.mpi(min_size=4)]
+        )
+    )
 
-# # 3D input
-# params.append(
-#     pytest.param(
-#         np.arange(0, 8), [1, 1, 2, 2, 2],  # P_x_ranks, P_x_shape
-#         3,  # input_dimensions
-#         [1, 3, 4, 5, 6],  # x_global_shape
-#         [5, 5, 5],  # kernel_size
-#         [2, 2, 2],  # padding
-#         [2, 2, 1],  # stride
-#         [1, 1, 1],  # dilation
-#         8,  # passed to comm_split_fixture, required MPI ranks
-#         id="3d-input",
-#         marks=[pytest.mark.mpi(min_size=8)]
-#         )
-#     )
+# 3D input
+params.append(
+    pytest.param(
+        np.arange(0, 8), [1, 1, 2, 2, 2],  # P_x_ranks, P_x_shape
+        3,  # input_dimensions
+        [1, 3, 4, 5, 6],  # x_global_shape
+        [5, 5, 5],  # kernel_size
+        [2, 2, 2],  # padding
+        [2, 2, 1],  # stride
+        [1, 1, 1],  # dilation
+        False,  # bias
+        8,  # passed to comm_split_fixture, required MPI ranks
+        id="3d-input",
+        marks=[pytest.mark.mpi(min_size=8)]
+        )
+    )
 
-# # 1D input
-# params.append(
-#     pytest.param(
-#         np.arange(0, 4), [1, 1, 4],  # P_x_ranks, P_x_shape
-#         1,  # input_dimensions
-#         [1, 3, 15],  # x_global_shape
-#         3,  # kernel_size
-#         1,  # padding
-#         1,  # stride
-#         1,  # dilation
-#         8,  # passed to comm_split_fixture, required MPI ranks
-#         id="1d-input",
-#         marks=[pytest.mark.mpi(min_size=8)]
-#         )
-#     )
+# 1D input
+params.append(
+    pytest.param(
+        np.arange(0, 4), [1, 1, 4],  # P_x_ranks, P_x_shape
+        1,  # input_dimensions
+        [1, 3, 15],  # x_global_shape
+        3,  # kernel_size
+        1,  # padding
+        1,  # stride
+        1,  # dilation
+        False,  # bias
+        8,  # passed to comm_split_fixture, required MPI ranks
+        id="1d-input",
+        marks=[pytest.mark.mpi(min_size=8)]
+        )
+    )
 
-# # Dilation = 2
-# params.append(
-#     pytest.param(
-#         np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
-#         2,  # input_dimensions
-#         [1, 3, 10, 10],  # x_global_shape
-#         [5, 5],  # kernel_size
-#         [1, 1],  # padding
-#         [1, 1],  # stride
-#         [2, 2],  # dilation
-#         4,  # passed to comm_split_fixture, required MPI ranks
-#         id="dilation-2",
-#         marks=[pytest.mark.mpi(min_size=4)]
-#         )
-#     )
+# Dilation = 2
+params.append(
+    pytest.param(
+        np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+        2,  # input_dimensions
+        [1, 3, 10, 10],  # x_global_shape
+        [5, 5],  # kernel_size
+        [1, 1],  # padding
+        [1, 1],  # stride
+        [2, 2],  # dilation
+        False,  # bias
+        4,  # passed to comm_split_fixture, required MPI ranks
+        id="dilation-2",
+        marks=[pytest.mark.mpi(min_size=4)]
+        )
+    )
 
-# # Lots of partitions
-# params.append(
-#     pytest.param(
-#         np.arange(0, 16), [1, 1, 4, 4],  # P_x_ranks, P_x_shape
-#         2,  # input_dimensions
-#         [1, 3, 10, 10],  # x_global_shape
-#         [5, 5],  # kernel_size
-#         [2, 2],  # padding
-#         [2, 2],  # stride
-#         [1, 1],  # dilation
-#         16,  # passed to comm_split_fixture, required MPI ranks
-#         id="many-partitions-small-input",
-#         marks=[pytest.mark.mpi(min_size=16)]
-#         )
-#     )
+# Lots of partitions
+params.append(
+    pytest.param(
+        np.arange(0, 16), [1, 1, 4, 4],  # P_x_ranks, P_x_shape
+        2,  # input_dimensions
+        [1, 3, 10, 10],  # x_global_shape
+        [5, 5],  # kernel_size
+        [2, 2],  # padding
+        [2, 2],  # stride
+        [1, 1],  # dilation
+        False,  # bias
+        16,  # passed to comm_split_fixture, required MPI ranks
+        id="many-partitions-small-input",
+        marks=[pytest.mark.mpi(min_size=16)]
+        )
+    )
+
+# With bias
+params.append(
+    pytest.param(
+        np.arange(0, 4), [1, 1, 2, 2],  # P_x_ranks, P_x_shape
+        2,  # input_dimensions
+        [1, 5, 10, 10],  # x_global_shape
+        [3, 3],  # kernel_size
+        [1, 1],  # padding
+        [1, 1],  # stride
+        [1, 1],  # dilation
+        True,  # bias
+        4,  # passed to comm_split_fixture, required MPI ranks
+        id="with-bias",
+        marks=[pytest.mark.mpi(min_size=4)]
+        )
+    )
+
+# 3D input with bias, stride, dilation, non-ideal lop-sided kernel, and large input
+params.append(
+    pytest.param(
+        np.arange(0, 18), [1, 1, 3, 3, 2],  # P_x_ranks, P_x_shape
+        3,  # input_dimensions
+        [1, 5, 50, 50, 50],  # x_global_shape
+        [5, 3, 3],  # kernel_size
+        [1, 1, 2],  # padding
+        [3, 1, 2],  # stride
+        [3, 3, 1],  # dilation
+        True,  # bias
+        18,  # passed to comm_split_fixture, required MPI ranks
+        id="hard-test",
+        marks=[pytest.mark.mpi(min_size=18)]
+        )
+    )
 
 
 @pytest.mark.parametrize("P_x_ranks, P_x_shape,"
@@ -173,6 +217,7 @@ params.append(
                          "padding,"
                          "stride,"
                          "dilation,"
+                         "bias,"
                          "comm_split_fixture",
                          params,
                          indirect=["comm_split_fixture"])
@@ -184,6 +229,7 @@ def test_conv_versus_pytorch(barrier_fence_fixture,
                              kernel_size,
                              padding,
                              stride,
+                             bias,
                              dilation):
 
     import numpy as np
@@ -228,7 +274,7 @@ def test_conv_versus_pytorch(barrier_fence_fixture,
                                  padding=padding,
                                  stride=stride,
                                  dilation=dilation,
-                                 bias=False)
+                                 bias=bias)
     gather = DistributedTranspose(P_x, P_root)
     if P_root.active:
         seq_layer = seq_layer_type(in_channels=x_global_shape[1],
@@ -237,11 +283,15 @@ def test_conv_versus_pytorch(barrier_fence_fixture,
                                    padding=padding,
                                    stride=stride,
                                    dilation=dilation,
-                                   bias=False)
+                                   bias=bias)
         # set the weights of both layers to be the same
         weight = torch.rand_like(seq_layer.weight)
         seq_layer.weight.data = weight
         dist_layer.weight.data = weight
+        if bias:
+            bias_weight = torch.rand_like(seq_layer.bias)
+            seq_layer.bias.data = bias_weight
+            dist_layer.bias.data = bias_weight
 
     # Create the input
     if P_root.active:
@@ -258,10 +308,16 @@ def test_conv_versus_pytorch(barrier_fence_fixture,
     if P_root.active:
         seq_y = seq_layer(seq_x)
         assert dist_y.shape == seq_y.shape
-        # print((dist_y - seq_y).max())
         assert torch.allclose(dist_y, seq_y)
-
-    # TODO: check backward pass
+    
+    # Check the backward pass
+    dist_y.sum().backward()
+    dist_dx = dist_x.grad
+    if P_root.active:
+        seq_y.sum().backward()
+        seq_dx = seq_x.grad
+        assert dist_dx.shape == seq_dx.shape
+        assert np.allclose(dist_dx, seq_dx)
 
     P_world.deactivate()
     P_x_base.deactivate()

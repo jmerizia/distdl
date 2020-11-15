@@ -38,14 +38,10 @@ class HaloMixin:
                                               padding,
                                               dilation)
 
-        # print(self.P_x.rank, 'halo shape', halo_shape)
-        # assert False
-
         recv_buffer_shape = halo_shape.copy()
 
         send_buffer_shape = np.zeros_like(halo_shape, dtype=int)
 
-        # print(self.P_x.rank)
         for dim in range(dims):
             left_x_local_shape, right_x_local_shape = neighbor_x_local_shapes[dim]
             left_x_local_start_index, right_x_local_start_index = neighbor_x_local_start_indices[dim]
@@ -65,7 +61,6 @@ class HaloMixin:
                                                            stride,
                                                            padding,
                                                            dilation)
-                # print('left, dim', dim, 'shape', left_x_local_shape, 'halo' ,lpartition_halo)
                 send_buffer_shape[dim, 0] = lpartition_halo[dim, 1]
 
             # If I have a right neighbor, my right send buffer size is my right
@@ -82,7 +77,6 @@ class HaloMixin:
                                                            stride,
                                                            padding,
                                                            dilation)
-                # print('right, dim', dim, 'shape', right_x_local_shape, 'halo', rpartition_halo)
                 send_buffer_shape[dim, 1] = rpartition_halo[dim, 0]
 
         halo_shape_with_negatives = self._compute_halo_shape(partition_shape,
@@ -100,9 +94,6 @@ class HaloMixin:
 
         halo_shape = halo_shape.astype(int)
         needed_ranges = needed_ranges.astype(int)
-        # print('send', send_buffer_shape)
-        # print('recv', recv_buffer_shape)
-        # assert False
 
         return halo_shape, recv_buffer_shape, send_buffer_shape, needed_ranges
 
@@ -123,7 +114,7 @@ class HaloMixin:
         dims = len(x_local_shape)
         for dim in range(2, dims):
             for i in range(self.P_x.index[dim]):
-                idx = tuple(i if j == dim else 0 for j in range(self.P_x.shape[dim]))
+                idx = tuple(i if j == dim else 0 for j in range(dims))
                 x_local_start_index[dim] += subtensor_shapes_unbalanced[idx][dim]
         x_local_stop_index = x_local_start_index + x_local_shape - 1
         return x_local_start_index, x_local_stop_index
