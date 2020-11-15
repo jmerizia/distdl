@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 from adjoint_test import check_adjoint_test_tight
 
-
 params = []
 
 # No stride, and ideal padding for kernel size
@@ -234,7 +233,10 @@ def test_conv_versus_pytorch(barrier_fence_fixture,
 
     import numpy as np
     import torch
-    from torch.nn import Conv1d, Conv2d, Conv3d, Sequential
+    from torch.nn import Conv1d
+    from torch.nn import Conv2d
+    from torch.nn import Conv3d
+    from torch.nn import Sequential
 
     from distdl.backends.mpi.partition import MPIPartition
     from distdl.nn.conv_feature_new import DistributedFeatureConv1d

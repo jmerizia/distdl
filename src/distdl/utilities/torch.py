@@ -1,5 +1,5 @@
-import torch
 import numpy as np
+import torch
 
 
 def zero_volume_tensor(b=None, dtype=None, requires_grad=False):

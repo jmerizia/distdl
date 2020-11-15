@@ -1,6 +1,6 @@
+import numpy as np
 import pytest
 import torch
-import numpy as np
 
 parametrizations = []
 
@@ -92,8 +92,8 @@ def test_padnd_adjoint(barrier_fence_fixture,
     from distdl.backends.mpi.partition import MPIPartition
     from distdl.nn.pad import DistributedPad
     from distdl.nn.transpose import DistributedTranspose
-    from distdl.utilities.torch import zero_volume_tensor
     from distdl.utilities.torch import to_torch_pad
+    from distdl.utilities.torch import zero_volume_tensor
 
     # Isolate the minimum needed ranks
     base_comm, active = comm_split_fixture
