@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-from adjoint_test import check_adjoint_test_tight
 
 params = []
 
@@ -31,7 +30,7 @@ params.append(
        [2, 2],  # padding
        [2, 2],  # stride
        [1, 1],  # dilation
-        False,  # bias
+       False,  # bias
        4,  # passed to comm_split_fixture, required MPI ranks
        id="stride-2-ideal-padding",
        marks=[pytest.mark.mpi(min_size=4)]
@@ -236,14 +235,12 @@ def test_conv_versus_pytorch(barrier_fence_fixture,
     from torch.nn import Conv1d
     from torch.nn import Conv2d
     from torch.nn import Conv3d
-    from torch.nn import Sequential
 
     from distdl.backends.mpi.partition import MPIPartition
     from distdl.nn.conv_feature_new import DistributedFeatureConv1d
     from distdl.nn.conv_feature_new import DistributedFeatureConv2d
     from distdl.nn.conv_feature_new import DistributedFeatureConv3d
     from distdl.nn.transpose import DistributedTranspose
-    from distdl.utilities.slicing import compute_subshape
     from distdl.utilities.torch import zero_volume_tensor
 
     # Isolate the minimum needed ranks
@@ -311,7 +308,7 @@ def test_conv_versus_pytorch(barrier_fence_fixture,
         seq_y = seq_layer(seq_x)
         assert dist_y.shape == seq_y.shape
         assert torch.allclose(dist_y, seq_y)
-    
+
     # Check the backward pass
     dist_y.sum().backward()
     dist_dx = dist_x.grad

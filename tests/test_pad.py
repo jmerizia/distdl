@@ -124,10 +124,10 @@ def test_padnd_adjoint(barrier_fence_fixture,
     # Check the forward pass
     dist_y = gather(dist_pad(scatter(dist_x)))
     if P_root.active:
-       seq_y = F.pad(seq_x, to_torch_pad(pad))
-       assert dist_y.dtype == seq_y.dtype
-       assert dist_y.shape == seq_y.shape
-       assert torch.allclose(dist_y, seq_y)
+        seq_y = F.pad(seq_x, to_torch_pad(pad))
+        assert dist_y.dtype == seq_y.dtype
+        assert dist_y.shape == seq_y.shape
+        assert torch.allclose(dist_y, seq_y)
 
     # Check the backward pass
     dy = torch.zeros(*dist_y.shape, requires_grad=True)
