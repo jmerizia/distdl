@@ -1,6 +1,8 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 
+from distdl.backends.mpi.tensor_decomposition import compute_subtensor_shapes_unbalanced
 from distdl.nn.broadcast import Broadcast
 from distdl.nn.halo_exchange import HaloExchange
 from distdl.nn.mixins.conv_mixin import ConvMixin
@@ -51,7 +53,18 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
     # Convolution class for base unit of work.
     TorchConvType = None
 
-    def __init__(self, P_x, buffer_manager=None, *args, **kwargs):
+    def __init__(self,
+                 P_x,
+                 in_channels,
+                 out_channels,
+                 kernel_size,
+                 stride=1,
+                 padding=0,
+                 padding_mode='zeros',
+                 dilation=1,
+                 groups=1,
+                 bias=True,
+                 buffer_manager=None):
 
         super(DistributedFeatureConvBase, self).__init__()
 
@@ -70,12 +83,45 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
 
         # Do this before checking serial so that the layer works properly
         # in the serial case
-        self.conv_layer = self.TorchConvType(*args, **kwargs)
+        self.conv_layer = self.TorchConvType(in_channels=in_channels,
+                                             out_channels=out_channels,
+                                             kernel_size=kernel_size,
+                                             stride=stride,
+                                             padding=0,
+                                             padding_mode='zeros',
+                                             dilation=dilation,
+                                             groups=groups,
+                                             bias=bias)
 
         self.serial = False
         if self.P_x.size == 1:
             self.serial = True
             return
+
+        dims = len(self.P_x.shape)
+
+        # Expand the given parameters to the proper shapes
+        kernel_size = np.atleast_1d(kernel_size)
+        kernel_size = self._left_pad_to_length(kernel_size, dims, 1)
+        stride = np.atleast_1d(stride)
+        stride = self._left_pad_to_length(stride, dims, 1)
+        # For now, only support symmetric padding
+        padding = np.atleast_1d(padding)
+        padding = self._left_pad_to_length(padding, dims, 0)
+        dilation = np.atleast_1d(dilation)
+        dilation = self._left_pad_to_length(dilation, dims, 1)
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.groups = groups
+        self.bias = bias
+
+        pad_left_right = self.padding.reshape((dims, 1)) + np.zeros((dims, 2), dtype=np.int)
+        self.local_padding = self._compute_local_padding(pad_left_right)
 
         # Weights and biases partition
         P_wb = self.P_x.create_partition_inclusive([0])
@@ -121,12 +167,6 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
             self.b_broadcast = Broadcast(self.P_wb_cart, self.P_x,
                                          preserve_batch=False)
 
-        # We need the halo shape, and other info, to fully populate the pad,
-        # halo exchange, and unpad layers.  For pad and unpad, we defer their
-        # construction to the pre-forward hook.
-        self.pad_layer = None
-        self.unpad_layer = None
-
         # We need to be able to remove some data from the input to the conv
         # layer.
         self.needed_slices = None
@@ -164,27 +204,38 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
         if self.serial:
             return
 
-        # To compute the halo regions, we need the global tensor shape.  This
-        # is not available until when the input is provided.
+        # Compute global and local shapes with padding
         x_global_structure = \
             self._distdl_backend.assemble_global_tensor_structure(input[0], self.P_x)
+        x_local_structure = TensorStructure(input[0])
+        x_global_shape = x_global_structure.shape
+        x_local_shape = x_local_structure.shape
+        x_global_shape_after_pad = x_global_shape + 2*self.padding
+        x_local_shape_after_pad = x_local_shape + np.sum(self.local_padding, axis=1, keepdims=False)
+        x_local_structure_after_pad = TensorStructure(input[0])
+        x_local_structure_after_pad.shape = x_local_shape_after_pad
+
+        # We need to compute the halos with respect to the explicit padding.
+        # So, we assume the padding is already added, then compute the halo regions.
+        subtensor_shapes = \
+            compute_subtensor_shapes_unbalanced(x_local_structure_after_pad, self.P_x)
 
         # Using that information, we can get there rest of the halo information
-        exchange_info = self._compute_exchange_info(x_global_structure.shape,
-                                                    self.conv_layer.kernel_size,
-                                                    self.conv_layer.stride,
-                                                    self.conv_layer.padding,
-                                                    self.conv_layer.dilation,
+        exchange_info = self._compute_exchange_info(x_global_shape_after_pad,
+                                                    self.kernel_size,
+                                                    self.stride,
+                                                    0,
+                                                    self.dilation,
                                                     self.P_x.active,
                                                     self.P_x.shape,
-                                                    self.P_x.index)
+                                                    self.P_x.index,
+                                                    subtensor_shapes=subtensor_shapes)
         halo_shape = exchange_info[0]
         recv_buffer_shape = exchange_info[1]
         send_buffer_shape = exchange_info[2]
         needed_ranges = exchange_info[3]
 
-        # Now we have enough information to instantiate the padding shim
-        self.pad_layer = PadNd(halo_shape, value=0)
+        self.halo_shape = halo_shape
 
         # We can also set up part of the halo layer.
         self.halo_layer = HaloExchange(self.P_x,
@@ -197,17 +248,6 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
         # be "negative" halos.
         self.needed_slices = assemble_slices(needed_ranges[:, 0],
                                              needed_ranges[:, 1])
-
-        # Unpad shape are conv layer's padding in the dimensions where we have
-        # a halo, otherwise 0.  There is no halo in the batch and channel
-        # dimensions.
-        conv_padding = np.concatenate(([0, 0], self.conv_layer.padding))
-        unpad_shape = []
-        for pad, halo in zip(conv_padding, halo_shape):
-            unpad_shape.append(np.where(halo > 0, pad, 0))
-        unpad_shape = np.asarray(unpad_shape)
-
-        self.unpad_layer = UnpadNd(unpad_shape, value=0)
 
     def _distdl_module_teardown(self, input):
         r"""Distributed (channel) convolution module teardown function.
@@ -224,8 +264,6 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
         """
 
         # Reset all sub_layers
-        self.pad_layer = None
-        self.unpad_layer = None
         self.needed_slices = None
         self.halo_layer = None
 
@@ -247,6 +285,31 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
         new_tensor_structure = TensorStructure(input[0])
 
         return self._input_tensor_structure != new_tensor_structure
+
+    def _to_torch_padding(self, pad):
+        """
+        Accepts a NumPy ndarray describing the padding, and produces the torch F.pad format:
+            [[a_0, b_0], ..., [a_n, b_n]]  ->  (a_n, b_n, ..., a_0, b_0)
+        """
+        return tuple(np.array(list(reversed(pad)), dtype=int).flatten())
+
+    def _compute_local_padding(self, padding):
+        """
+        Computes the amount of explicit padding required on the current rank,
+        given the global padding.
+        """
+        should_pad_left = [k == 0 for k in self.P_x.index]
+        should_pad_right = [k == d-1 for k, d in zip(self.P_x.index, self.P_x.shape)]
+        should_pad = np.stack((should_pad_left, should_pad_right), axis=1)
+        local_padding = np.where(should_pad, padding, 0)
+        return local_padding
+
+    def _left_pad_to_length(self, array, length, value):
+        lpad = length - len(array)
+        return np.pad(array,
+                      pad_width=(lpad, 0),
+                      mode='constant',
+                      constant_values=value)
 
     def forward(self, input):
         r"""Forward function interface.
@@ -271,11 +334,15 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
             b = self.b_broadcast(self.bias)
             self.conv_layer.bias = b
 
-        input_padded = self.pad_layer(input)
+        # Compute the total padding and convert to PyTorch format
+        total_padding = self.local_padding + self.halo_shape
+        torch_padding = self._to_torch_padding(total_padding)
+
+        input_padded = F.pad(input, pad=torch_padding, mode='constant', value=0)
         input_exchanged = self.halo_layer(input_padded)
         input_needed = input_exchanged[self.needed_slices]
         conv_output = self.conv_layer(input_needed)
-        return self.unpad_layer(conv_output)
+        return conv_output
 
 
 class DistributedFeatureConv1d(DistributedFeatureConvBase):
