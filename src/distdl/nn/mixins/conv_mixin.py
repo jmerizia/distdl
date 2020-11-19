@@ -11,10 +11,6 @@ class ConvMixin:
                                  dilation):
         r"""Compute left index required to apply a kernel at a given index.
 
-        .. warning::
-           This does not currently take stride and dilation into account.
-           Therefore, the padding values may not be correct in these cases.
-
         Parameters
         ----------
         idx :
@@ -44,10 +40,6 @@ class ConvMixin:
                                  padding,
                                  dilation):
         r"""Compute right index required to apply a kernel at a given index.
-
-        .. warning::
-           This does not currently take stride and dilation into account.
-           Therefore, the padding values may not be correct in these cases.
 
         Parameters
         ----------

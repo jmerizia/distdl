@@ -100,16 +100,13 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
 
         dims = len(self.P_x.shape)
 
-        # Expand the given parameters to the proper shapes
-        kernel_size = np.atleast_1d(kernel_size)
-        kernel_size = self._left_pad_to_length(kernel_size, dims, 1)
-        stride = np.atleast_1d(stride)
-        stride = self._left_pad_to_length(stride, dims, 1)
-        # For now, only support symmetric padding
+        # We will be using global padding to compute local padding,
+        # so expand it to a numpy array
         padding = np.atleast_1d(padding)
-        padding = self._left_pad_to_length(padding, dims, 0)
-        dilation = np.atleast_1d(dilation)
-        dilation = self._left_pad_to_length(dilation, dims, 1)
+        padding = np.pad(padding,
+                         pad_width=(dims-len(padding), 0),
+                         mode='constant',
+                         constant_values=0)
 
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -338,7 +335,10 @@ class DistributedFeatureConvBase(Module, HaloMixin, ConvMixin):
         total_padding = self.local_padding + self.halo_shape
         torch_padding = self._to_torch_padding(total_padding)
 
-        input_padded = F.pad(input, pad=torch_padding, mode='constant', value=0)
+        if total_padding.sum() == 0:
+            input_padded = input
+        else:
+            input_padded = F.pad(input, pad=torch_padding, mode='constant', value=0)
         input_exchanged = self.halo_layer(input_padded)
         input_needed = input_exchanged[self.needed_slices]
         conv_output = self.conv_layer(input_needed)

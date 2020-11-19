@@ -117,7 +117,7 @@ class HaloMixin:
 
         x_local_start_index = np.zeros_like(x_local_shape, dtype=np.int)
         dims = len(x_local_shape)
-        for dim in range(2, dims):
+        for dim in range(dims):
             for i in range(index[dim]):
                 idx = tuple(i if j == dim else 0 for j in range(dims))
                 x_local_start_index[dim] += subtensor_shapes[idx][dim]
@@ -135,6 +135,7 @@ class HaloMixin:
         # and the last maximum is so that we dont shorten the stop (keeps the
         # parallel and sequential behavior exactly the same, but I dont think
         # it is strictly necessary)
+        # TODO: Correct this to correctly handle negative right halos.
         ranges[:, 1] = tensor_shape[:] + np.maximum(0, halo_shape[:, 0]) + np.maximum(0, halo_shape[:, 1])
 
         return ranges
